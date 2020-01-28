@@ -38,8 +38,9 @@ const (
 // Parameters used when creating the kubernetes replication controller in charge
 // of a job or pipeline's workers
 type workerOptions struct {
-	rcName     string // Name of the replication controller managing workers
-	specCommit string // Pipeline spec commit ID (needed for s3 inputs)
+	rcName        string // Name of the replication controller managing workers
+	s3GatewayPort int32  // s3 gateway port (if any s3 pipeline inputs)
+	specCommit    string // Pipeline spec commit ID (needed for s3 inputs)
 
 	userImage        string              // The user's pipeline/job image
 	labels           map[string]string   // k8s labels attached to the RC and workers
@@ -178,6 +179,14 @@ func (a *apiServer) workerPodSpec(options *workerOptions) (v1.PodSpec, error) {
 		},
 	}
 
+	// possibly expose s3 gateway port in the sidecar container
+	var sidecarPorts []v1.ContainerPort
+	if options.s3GatewayPort != 0 {
+		sidecarPorts = append(sidecarPorts, v1.ContainerPort{
+			ContainerPort: options.s3GatewayPort,
+		})
+	}
+
 	if !a.noExposeDockerSocket {
 		options.volumes = append(options.volumes, v1.Volume{
 			Name: "docker",
@@ -233,6 +242,7 @@ func (a *apiServer) workerPodSpec(options *workerOptions) (v1.PodSpec, error) {
 				Env:             sidecarEnv,
 				VolumeMounts:    sidecarVolumeMounts,
 				Resources:       sidecarResources,
+				Ports:           sidecarPorts,
 			},
 		},
 		RestartPolicy:                 "Always",
@@ -471,10 +481,17 @@ func (a *apiServer) getWorkerOptions(ptr *pps.EtcdPipelineInfo, pipelineInfo *pp
 			}
 		}
 	}
+	var s3GatewayPort int32
+	if ppsutil.ContainsS3Inputs(pipelineInfo.Input) || pipelineInfo.S3Out {
+		// TODO(msteffen) do we need a separate option for the sidecar port?
+		// env.S3GatewayPort was originally added for main pachd.
+		s3GatewayPort = int32(a.env.S3GatewayPort)
+	}
 
 	// Generate options for new RC
 	return &workerOptions{
 		rcName:           rcName,
+		s3GatewayPort:    s3GatewayPort,
 		specCommit:       ptr.SpecCommit.ID,
 		labels:           labels,
 		annotations:      annotations,
