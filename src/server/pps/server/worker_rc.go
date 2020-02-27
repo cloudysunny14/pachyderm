@@ -143,11 +143,30 @@ func (a *apiServer) workerPodSpec(options *workerOptions) (v1.PodSpec, error) {
 	sidecarVolumeMounts = append(sidecarVolumeMounts, secretMount)
 	userVolumeMounts = append(userVolumeMounts, secretMount)
 
+	// Set up resource requests/limits
 	// Explicitly set CPU, MEM and DISK requests to zero because some cloud
 	// providers set their own defaults which are usually not what we want.
 	cpuZeroQuantity := resource.MustParse("0")
 	memZeroQuantity := resource.MustParse("0M")
 	memSidecarQuantity := resource.MustParse(options.cacheSize)
+	workerResources := v1.ResourceRequirements{
+		Requests: map[v1.ResourceName]resource.Quantity{
+			v1.ResourceCPU:    cpuZeroQuantity,
+			v1.ResourceMemory: memSidecarQuantity,
+		},
+	}
+	if options.resourceRequests != nil {
+		workerResources.Requests = *options.resourceRequests
+	}
+	if options.resourceLimits != nil {
+		workerResources.Limits = *options.resourceLimits
+	}
+	sidecarResources := v1.ResourceRequirements{
+		Requests: map[v1.ResourceName]resource.Quantity{
+			v1.ResourceCPU:    cpuZeroQuantity,
+			v1.ResourceMemory: memZeroQuantity,
+		},
+	}
 
 	if !a.noExposeDockerSocket {
 		options.volumes = append(options.volumes, v1.Volume{
@@ -193,13 +212,8 @@ func (a *apiServer) workerPodSpec(options *workerOptions) (v1.PodSpec, error) {
 				Command:         []string{"/pach-bin/worker"},
 				ImagePullPolicy: v1.PullPolicy(pullPolicy),
 				Env:             workerEnv,
-				Resources: v1.ResourceRequirements{
-					Requests: map[v1.ResourceName]resource.Quantity{
-						v1.ResourceCPU:    cpuZeroQuantity,
-						v1.ResourceMemory: memZeroQuantity,
-					},
-				},
-				VolumeMounts: userVolumeMounts,
+				Resources:       workerResources,
+				VolumeMounts:    userVolumeMounts,
 			},
 			{
 				Name:            client.PPSWorkerSidecarContainerName,
@@ -208,12 +222,7 @@ func (a *apiServer) workerPodSpec(options *workerOptions) (v1.PodSpec, error) {
 				ImagePullPolicy: v1.PullPolicy(pullPolicy),
 				Env:             sidecarEnv,
 				VolumeMounts:    sidecarVolumeMounts,
-				Resources: v1.ResourceRequirements{
-					Requests: map[v1.ResourceName]resource.Quantity{
-						v1.ResourceCPU:    cpuZeroQuantity,
-						v1.ResourceMemory: memSidecarQuantity,
-					},
-				},
+				Resources:       sidecarResources,
 			},
 		},
 		RestartPolicy:                 "Always",
@@ -226,19 +235,7 @@ func (a *apiServer) workerPodSpec(options *workerOptions) (v1.PodSpec, error) {
 		podSpec.NodeSelector = options.schedulingSpec.NodeSelector
 		podSpec.PriorityClassName = options.schedulingSpec.PriorityClassName
 	}
-	resourceRequirements := v1.ResourceRequirements{
-		Requests: map[v1.ResourceName]resource.Quantity{
-			v1.ResourceCPU:    cpuZeroQuantity,
-			v1.ResourceMemory: memZeroQuantity,
-		},
-	}
-	if options.resourceRequests != nil {
-		resourceRequirements.Requests = *options.resourceRequests
-	}
-	if options.resourceLimits != nil {
-		resourceRequirements.Limits = *options.resourceLimits
-	}
-	podSpec.Containers[0].Resources = resourceRequirements
+
 	if options.podSpec != "" || options.podPatch != "" {
 		jsonPodSpec, err := json.Marshal(&podSpec)
 		if err != nil {
