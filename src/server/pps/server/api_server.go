@@ -207,7 +207,7 @@ func (a *apiServer) validateInput(pachClient *client.APIClient, pipelineName str
 						"gateway rather than the file system")
 				case input.Pfs.S3 && input.Pfs.EmptyFiles:
 					return fmt.Errorf("input cannot specify both 's3' and " +
-						"'empty_files', as's3' requires input data to be accessed via " +
+						"'empty_files', as 's3' requires input data to be accessed via " +
 						"Pachyderm's S3 gateway rather than the file system")
 				}
 				// Note that input.Pfs.Commit is empty if a) this is a job b) one of
